@@ -1,0 +1,61 @@
+import {
+  Activity,
+  BookOpen,
+  Bot,
+  Brain,
+  Cloud,
+  CodeXml,
+  Cpu,
+  Database,
+  FileText,
+  Gauge,
+  GitBranch,
+  Layers,
+  Lightbulb,
+  LineChart,
+  Lock,
+  Network,
+  Rocket,
+  Server,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  TrendingUp,
+  Users,
+  Workflow,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react'
+
+export const POST_ICONS: Record<string, LucideIcon> = {
+  ShieldCheck,
+  Workflow,
+  Activity,
+  Brain,
+  Network,
+  Database,
+  Cpu,
+  Sparkles,
+  Bot,
+  Cloud,
+  Server,
+  Lock,
+  Layers,
+  GitBranch,
+  CodeXml,
+  Gauge,
+  LineChart,
+  TrendingUp,
+  Target,
+  Rocket,
+  Lightbulb,
+  Users,
+  Zap,
+  BookOpen,
+}
+
+export const POST_ICON_NAMES = Object.keys(POST_ICONS)
+
+export function getPostIcon(name: string): LucideIcon {
+  return POST_ICONS[name] ?? FileText
+}

@@ -1,0 +1,225 @@
+[
+  {
+    "id": "69aa2ee7-1f34-4b50-bb3c-43924d5b412a",
+    "slug": "why-diy-rag-pipelines-fail-in-production",
+    "title": "Why DIY RAG Pipelines Fail in Production",
+    "excerpt": "Building a custom RAG demo is simple, but production brings fragile pipelines, PII leakage risks, and missing context. Here is why homegrown RAG breaks down — and what a governed approach fixes.",
+    "intro": "",
+    "category": "RAG Architecture",
+    "icon": "Workflow",
+    "date": "2026-04-03",
+    "readTime": null,
+    "cover": {
+      "image": "",
+      "motif": "pipeline",
+      "label": "Pipeline · Governance",
+      "accent": "#22d3ee"
+    },
+    "tags": [
+      "RAG",
+      "Architecture",
+      "Data Governance"
+    ],
+    "takeaways": [
+      "A RAG prototype takes an afternoon; a production RAG system is a permanent engineering commitment.",
+      "Permissions and PII controls must be designed into retrieval, not filtered at the user interface.",
+      "Without evaluation sets and feedback loops, quality is assumed rather than measured."
+    ],
+    "sections": [
+      {
+        "heading": "",
+        "paragraphs": [
+          "Retrieval-Augmented Generation has never been easier to prototype. With an open-source framework, an embedding API and a vector database, a capable engineer can have a working \"chat with your documents\" app in an afternoon. That speed is exactly what makes DIY RAG so tempting — and so misleading.",
+          "The prototype answers the first fifty questions well. Then it meets real users, real data volumes and real compliance requirements, and the cracks start to show."
+        ],
+        "points": [],
+        "callout": null
+      },
+      {
+        "heading": "1. Fragile ingestion pipelines",
+        "paragraphs": [
+          "In a prototype, ingestion is a script that runs once. In production, it is a living system that has to handle hundreds of formats, scanned documents, spreadsheets, permission changes, deletions and constant updates. Chunking strategies that worked for clean PDFs fall apart on tables and slide decks. One upstream change in a source system can silently break indexing for weeks.",
+          "Most homegrown pipelines have no monitoring for this. The first sign of failure is usually a user complaining that \"the AI doesn't know about\" a document that was uploaded a month ago."
+        ],
+        "points": [],
+        "callout": null
+      },
+      {
+        "heading": "2. PII and sensitive data leakage",
+        "paragraphs": [
+          "A vector index does not know who is allowed to read what. If HR records, contracts and customer data are embedded into the same store without access metadata, any user with a clever enough question can retrieve them. Bolting permissions on after the fact is hard, because the original document-level controls were never captured.",
+          "For regulated industries, this alone is often a deal-breaker. **Data governance has to be designed into retrieval, not filtered at the user interface.**"
+        ],
+        "points": [],
+        "callout": null
+      },
+      {
+        "heading": "3. Missing and conflicting context",
+        "paragraphs": [
+          "Naive top-k similarity search retrieves passages that look relevant, not passages that are correct. It will happily return an outdated policy next to the current one, or a draft next to the signed version, and leave the model to guess. Without metadata such as source authority, recency and ownership, the model has no principled way to resolve conflicts."
+        ],
+        "points": [],
+        "callout": null
+      },
+      {
+        "heading": "4. No way to measure quality",
+        "paragraphs": [
+          "Ask most teams how accurate their RAG system is and the honest answer is \"it seems good.\" There is no evaluation set, no tracking of retrieval quality, and no feedback loop from users. Changes to prompts, models or chunking are shipped on intuition, and regressions go unnoticed until someone important gets a bad answer."
+        ],
+        "points": [],
+        "callout": null
+      },
+      {
+        "heading": "5. The hidden maintenance bill",
+        "paragraphs": [
+          "Every component in a DIY stack — loaders, chunkers, embedding models, vector store, re-rankers, prompts, guardrails — has its own release cycle and failure modes. Keeping them working together becomes a permanent engineering commitment. What started as an afternoon project turns into a team."
+        ],
+        "points": [],
+        "callout": {
+          "type": "quote",
+          "text": "The cost of DIY RAG is not building it. It is everything you have to keep building after the demo works."
+        }
+      },
+      {
+        "heading": "How a governed approach fixes it",
+        "paragraphs": [
+          "A governed RAG platform treats retrieval as managed infrastructure rather than glue code. The difference shows up in a few concrete places:"
+        ],
+        "points": [
+          "**Managed connectors** that keep indexes in sync with source systems, including updates and deletions.",
+          "**Permission-aware retrieval** that inherits access controls from the source, so users only ever retrieve what they are allowed to see.",
+          "**PII detection and redaction** applied before content ever reaches the model.",
+          "**Source-grounded answers with citations**, and explicit refusals when the evidence is missing.",
+          "**Built-in evaluation and audit logs**, so quality is measured rather than assumed."
+        ],
+        "callout": null
+      },
+      {
+        "heading": "",
+        "paragraphs": [
+          "This is the layer we built Vectalk to provide: a plug-and-play governed retrieval engine that connects to your databases, files and ERP systems, and deploys in your cloud or on-premises."
+        ],
+        "points": [],
+        "callout": null
+      }
+    ],
+    "conclusion": "There are still good reasons to build parts of your stack — unique data, unusual workflows, or deep in-house expertise. But the decision should be made with eyes open. Prototype fast, by all means. Just do not mistake a working demo for a production system, and budget for governance, evaluation and maintenance from the start.",
+    "updatedAt": "2026-10-22T05:08:31.288Z"
+  },
+  {
+    "id": "32c4da21-120d-4e42-b1ed-d5b7d5f11cc4",
+    "slug": "observability-for-agentic-systems",
+    "title": "Observability for Agentic Systems: What We Actually Measure",
+    "excerpt": "If you build things with wheels, you check the tires. If you build things with AI agents, you need observability: seeing what your AI is doing, step by step, and knowing when it goes wrong.",
+    "intro": "",
+    "category": "AI Engineering",
+    "icon": "Activity",
+    "date": "2026-04-02",
+    "readTime": null,
+    "cover": {
+      "image": "",
+      "motif": "trace",
+      "label": "Agent · Trace Monitoring",
+      "accent": "#22d3ee"
+    },
+    "tags": [
+      "AI Agents",
+      "Observability",
+      "LLMOps"
+    ],
+    "takeaways": [
+      "Agents fail quietly: a fast, well-formed response can still be completely wrong.",
+      "Trace every step — model calls, retrievals, tool calls and decisions — end to end.",
+      "Alert on quality signals like groundedness and retrieval relevance, not just uptime."
+    ],
+    "sections": [
+      {
+        "heading": "",
+        "paragraphs": [
+          "Most teams discover the need for agent observability the hard way: a customer reports a strange answer, and nobody can reconstruct how the agent got there. The logs show that a request came in and a response went out. Everything in between is a black box.",
+          "Traditional application monitoring tells you whether a service is up and how fast it responds. That is necessary but nowhere near sufficient for agentic systems. An agent can return a fast, well-formed, HTTP 200 response that is completely wrong — because it called the wrong tool, retrieved the wrong document, or looped through ten reasoning steps to reach a conclusion it should have reached in two."
+        ],
+        "points": [],
+        "callout": null
+      },
+      {
+        "heading": "Why agents are harder to observe",
+        "paragraphs": [
+          "A single user request to an agent can trigger a chain of decisions: planning, retrieval, tool calls, intermediate reasoning, retries and a final response. Each step is non-deterministic. The same input can take different paths on different days. Failures are rarely crashes; they are subtle drifts in quality, cost or behaviour.",
+          "That means observability has to capture the **whole trajectory** of a request, not just its start and end."
+        ],
+        "points": [],
+        "callout": null
+      },
+      {
+        "heading": "What we actually measure",
+        "paragraphs": [
+          "Across our production systems, we have converged on a small set of signals that catch most problems early. We group them into five layers."
+        ],
+        "points": [],
+        "callout": null
+      },
+      {
+        "heading": "1. Traces for every step",
+        "paragraphs": [
+          "Every request produces a trace: each model call, retrieval, tool invocation and decision, with inputs, outputs, timing and token usage. When something goes wrong, the first question is always \"what did the agent actually do?\" — and the trace answers it in seconds."
+        ],
+        "points": [],
+        "callout": null
+      },
+      {
+        "heading": "2. Retrieval quality",
+        "paragraphs": [
+          "For retrieval-heavy agents, we track how many sources were retrieved, their relevance scores, whether the answer actually used them, and how often the system had to say \"I don't have enough information.\" A sudden drop in retrieval relevance is often the earliest warning that an index or connector has broken."
+        ],
+        "points": [],
+        "callout": null
+      },
+      {
+        "heading": "3. Answer groundedness",
+        "paragraphs": [
+          "We sample responses and evaluate whether each claim is supported by the retrieved sources. Groundedness is the closest thing we have to a hallucination rate, and it is the metric our enterprise customers care about most."
+        ],
+        "points": [],
+        "callout": null
+      },
+      {
+        "heading": "4. Tool and step behaviour",
+        "paragraphs": [],
+        "points": [
+          "Tool call success and error rates, broken down by tool.",
+          "Steps per task, to catch agents that loop or over-think.",
+          "Retries and fallbacks, which often hide upstream instability.",
+          "Guardrail and policy triggers, including blocked PII and refused requests."
+        ],
+        "callout": null
+      },
+      {
+        "heading": "5. Cost, latency and user feedback",
+        "paragraphs": [
+          "Token usage and cost per task, end-to-end latency at the 50th and 95th percentile, and explicit user feedback such as thumbs up/down or corrected answers. Cost and latency regressions are usually the first visible symptom of a deeper behavioural change."
+        ],
+        "points": [],
+        "callout": {
+          "type": "quote",
+          "text": "An agent you cannot observe is an agent you cannot trust — and an agent you cannot trust will never be allowed near critical work."
+        }
+      },
+      {
+        "heading": "Turning signals into action",
+        "paragraphs": [
+          "Metrics are only useful if they change what you do. A few practices make the difference:"
+        ],
+        "points": [
+          "**Alert on quality, not just uptime.** A drop in groundedness or retrieval relevance should page someone the same way an outage would.",
+          "**Keep a living evaluation set.** Turn real failures into test cases, and run them before every prompt, model or pipeline change.",
+          "**Make traces auditable.** In regulated environments, the trace is the evidence of what the system did and why.",
+          "**Review a sample by hand every week.** Dashboards tell you that something changed; reading real conversations tells you what."
+        ],
+        "callout": null
+      }
+    ],
+    "conclusion": "You do not need a perfect observability stack on day one. Start by tracing every request end to end and logging retrieval results alongside answers. That alone will surface most of the issues that otherwise reach users first. Add evaluation and alerting as usage grows.\nAgentic systems are becoming part of how real work gets done. The teams that succeed will be the ones that can see clearly what their agents are doing — and prove it.",
+    "updatedAt": "2026-10-22T05:08:31.289Z"
+  }
+]
