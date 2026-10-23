@@ -10,6 +10,9 @@ export const metadata: Metadata = {
     'Insights on governed RAG, production GenAI, AI agents, and building revenue-producing enterprise AI systems — by Hareen Desai.',
 }
 
+// Read from the database on every request so edits show up immediately.
+export const dynamic = 'force-dynamic'
+
 export default async function Blog() {
   const posts = await getAllPosts()
 
