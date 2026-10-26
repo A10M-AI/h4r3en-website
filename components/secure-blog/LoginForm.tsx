@@ -5,7 +5,7 @@ import { Eye, EyeOff, KeyRound, LoaderCircle, Lock } from 'lucide-react'
 import { login } from '@/app/secure-blog/actions'
 import { inputClass, labelClass, panelClass, primaryButtonClass } from './styles'
 
-export default function LoginForm({ configured }: { configured: boolean }) {
+export default function LoginForm() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [pending, setPending] = useState(false)
@@ -36,15 +36,6 @@ export default function LoginForm({ configured }: { configured: boolean }) {
           Sign in to create, edit and publish articles on your website.
         </p>
 
-        {!configured && (
-          <p className="mb-6 p-4 rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-950/30 text-sm text-amber-700 dark:text-amber-300">
-            Admin access isn&apos;t set up yet. Add{' '}
-            <code className="font-mono text-xs">BLOG_ADMIN_PASSWORD</code> to{' '}
-            <code className="font-mono text-xs">.env.local</code> and restart
-            the server.
-          </p>
-        )}
-
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label htmlFor="password" className={labelClass}>
@@ -61,7 +52,6 @@ export default function LoginForm({ configured }: { configured: boolean }) {
                 autoComplete="current-password"
                 autoFocus
                 required
-                disabled={!configured}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter admin password"
@@ -86,7 +76,7 @@ export default function LoginForm({ configured }: { configured: boolean }) {
 
           <button
             type="submit"
-            disabled={pending || !configured || !password}
+            disabled={pending || !password}
             className={`${primaryButtonClass} w-full py-3`}
           >
             {pending && <LoaderCircle size={16} className="animate-spin" />}

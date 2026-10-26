@@ -5,17 +5,13 @@ import { redirect } from 'next/navigation'
 const SESSION_COOKIE = 'blog_admin_session'
 const SESSION_TTL_SECONDS = 60 * 60 * 12
 
-function adminPassword(): string {
-  return process.env.BLOG_ADMIN_PASSWORD ?? ''
-}
-
-export function isAuthConfigured(): boolean {
-  return adminPassword().length > 0
-}
+// Set in code rather than an environment variable, as requested.
+// Anyone who can read this repository can sign in to /secure-blog.
+const ADMIN_PASSWORD = 'neophoenix@123'
 
 // Keyed on the password, so changing it signs out every existing session.
 function sign(value: string): string {
-  return createHmac('sha256', `blog-session:${adminPassword()}`)
+  return createHmac('sha256', `blog-session:${ADMIN_PASSWORD}`)
     .update(value)
     .digest('base64url')
 }
@@ -26,7 +22,7 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export function checkPassword(password: string): boolean {
-  return isAuthConfigured() && safeEqual(password, adminPassword())
+  return safeEqual(password, ADMIN_PASSWORD)
 }
 
 export async function createSession() {
@@ -47,7 +43,6 @@ export async function destroySession() {
 }
 
 export async function isAdmin(): Promise<boolean> {
-  if (!isAuthConfigured()) return false
   const cookieStore = await cookies()
   const token = cookieStore.get(SESSION_COOKIE)?.value
   if (!token) return false

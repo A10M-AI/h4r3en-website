@@ -2,22 +2,13 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import {
-  checkPassword,
-  createSession,
-  destroySession,
-  isAdmin,
-  isAuthConfigured,
-} from '@/lib/blog/auth'
+import { checkPassword, createSession, destroySession, isAdmin } from '@/lib/blog/auth'
 import { deletePost, savePost } from '@/lib/blog/store'
 import { parsePostInput } from '@/lib/blog/validate'
 
 const SESSION_EXPIRED = 'Your session has expired. Please sign in again.'
 
 export async function login(password: string): Promise<{ error: string }> {
-  if (!isAuthConfigured()) {
-    return { error: 'Admin access is not configured. Set BLOG_ADMIN_PASSWORD in .env.local.' }
-  }
   if (typeof password !== 'string' || !checkPassword(password)) {
     // Slow down password guessing.
     await new Promise((resolve) => setTimeout(resolve, 1000))
