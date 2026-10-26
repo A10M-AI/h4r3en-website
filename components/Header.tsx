@@ -8,7 +8,7 @@ import { Sun, Moon, Menu, X } from 'lucide-react'
 
 const navLinks = [
   { href: '/', label: 'Home' },
-  { href: '/blog', label: 'Blog', badge: 'Coming Soon' },
+  { href: '/blog', label: 'Blog' },
   { href: '/contact', label: 'Contact' },
 ]
 
@@ -30,7 +30,8 @@ export default function Header() {
     setMobileMenuOpen(false)
   }, [pathname])
 
-  const isActive = (href: string) => pathname === href
+  const isActive = (href: string) =>
+    href === '/' ? pathname === '/' : pathname.startsWith(href)
 
   return (
     <header
@@ -64,11 +65,6 @@ export default function Header() {
                 }`}
               >
                 {link.label}
-                {link.badge && (
-                  <span className="bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide">
-                    Soon
-                  </span>
-                )}
               </Link>
             ))}
           </nav>
@@ -114,11 +110,6 @@ export default function Header() {
                 }`}
               >
                 {link.label}
-                {link.badge && (
-                  <span className="bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide">
-                    Soon
-                  </span>
-                )}
               </Link>
             ))}
           </nav>
