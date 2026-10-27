@@ -8,7 +8,7 @@ import { Sun, Moon, Menu, X } from 'lucide-react'
 
 const navLinks = [
   { href: '/', label: 'Home' },
-  { href: '/blog', label: 'Blog' },
+  { href: '/coming-blog', label: 'Blog' },
   { href: '/contact', label: 'Contact' },
 ]
 
@@ -30,8 +30,11 @@ export default function Header() {
     setMobileMenuOpen(false)
   }, [pathname])
 
-  const isActive = (href: string) =>
-    href === '/' ? pathname === '/' : pathname.startsWith(href)
+  const isActive = (href: string) => {
+    if (href === '/') return pathname === '/'
+    if (href === '/coming-blog') return pathname.startsWith('/coming-blog') || pathname.startsWith('/blog')
+    return pathname.startsWith(href)
+  }
 
   return (
     <header
