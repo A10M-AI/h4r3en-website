@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "build:run": "next build && next start",
+    "build:start": "next build && next start",
     "lint": "next lint",
     "db:setup": "node --env-file=.env.local scripts/setup-blog-db.mjs"
   },
