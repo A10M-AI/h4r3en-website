@@ -2,56 +2,115 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { checkPassword, createSession, destroySession, isAdmin } from '@/lib/blog/auth'
-import { deletePost, savePost } from '@/lib/blog/store'
-import { parsePostInput } from '@/lib/blog/validate'
+import {
+  checkRateLimit,
+  createSession,
+  destroySession,
+  isAdmin,
+  recordLoginFailure,
+  resetLoginAttempts,
+  verifyPassword,
+} from '@/lib/blog/auth'
+import { deletePost, isSlugTaken, savePost, type SaveResult } from '@/lib/blog/store'
+import type { PostInput } from '@/lib/blog/types'
+import { validatePostInput } from '@/lib/blog/validate'
 
-const SESSION_EXPIRED = 'Your session has expired. Please sign in again.'
+export async function loginAction(
+  prevState: { error?: string } | undefined,
+  formData: FormData
+): Promise<{ error?: string }> {
+  const password = formData.get('password')
 
-export async function login(password: string): Promise<{ error: string }> {
-  if (typeof password !== 'string' || !checkPassword(password)) {
-    // Slow down password guessing.
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    return { error: 'Incorrect password.' }
+  if (typeof password !== 'string' || !password) {
+    return { error: 'Please enter the admin password.' }
   }
+
+  // Check rate limiting
+  const rateLimit = checkRateLimit()
+  if (!rateLimit.allowed) {
+    return {
+      error: `Too many failed login attempts. Please wait ${rateLimit.waitSeconds} seconds before trying again.`,
+    }
+  }
+
+  const isValid = verifyPassword(password)
+  if (!isValid) {
+    recordLoginFailure()
+    return { error: 'Invalid admin password. Access denied.' }
+  }
+
+  // Successful login
+  resetLoginAttempts()
   await createSession()
   redirect('/secure-blog')
 }
 
-export async function logout() {
+export async function logoutAction() {
   await destroySession()
   redirect('/secure-blog/login')
 }
 
-function revalidateBlog() {
-  revalidatePath('/blog')
-  revalidatePath('/blog/[slug]', 'page')
-  revalidatePath('/secure-blog', 'layout')
+export async function checkSlugAction(
+  slug: string,
+  excludeId?: string | null
+): Promise<{ available: boolean }> {
+  if (!(await isAdmin())) {
+    return { available: false }
+  }
+  const taken = await isSlugTaken(slug, excludeId)
+  return { available: !taken }
 }
 
 export async function savePostAction(
   id: string | null,
-  input: unknown
-): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  if (!(await isAdmin())) return { ok: false, error: SESSION_EXPIRED }
-  if (id !== null && typeof id !== 'string') return { ok: false, error: 'Invalid post.' }
+  input: PostInput
+): Promise<SaveResult> {
+  if (!(await isAdmin())) {
+    return { ok: false, error: 'Unauthorized. Please sign in again.' }
+  }
 
-  const parsed = parsePostInput(input)
-  if (!parsed.ok) return parsed
+  // Validate input fields
+  const validationErrors = validatePostInput(input)
+  if (validationErrors.length > 0) {
+    return { ok: false, error: validationErrors[0].message }
+  }
 
-  const result = await savePost(id, parsed.post)
-  if (!result.ok) return result
-  revalidateBlog()
-  return { ok: true, id: result.post.id }
+  // Check slug uniqueness
+  const taken = await isSlugTaken(input.slug, id)
+  if (taken) {
+    return {
+      ok: false,
+      error: `Another article already uses the URL slug "/blog/${input.slug}". Please choose a different slug.`,
+    }
+  }
+
+  const result = await savePost(id, input)
+
+  if (result.ok) {
+    revalidatePath('/blog')
+    revalidatePath(`/blog/${result.post.slug}`)
+    revalidatePath('/secure-blog')
+  }
+
+  return result
 }
 
 export async function deletePostAction(
   id: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!(await isAdmin())) return { ok: false, error: SESSION_EXPIRED }
-  if (typeof id !== 'string' || !(await deletePost(id))) {
-    return { ok: false, error: 'This post no longer exists.' }
+  if (!(await isAdmin())) {
+    return { ok: false, error: 'Unauthorized. Please sign in again.' }
   }
-  revalidateBlog()
+
+  const deleted = await deletePost(id)
+  if (!deleted) {
+    return { ok: false, error: 'Post could not be found or has already been deleted.' }
+  }
+
+  revalidatePath('/blog')
+  revalidatePath(`/blog/${deleted.slug}`)
+  revalidatePath('/secure-blog')
+
   return { ok: true }
 }
+

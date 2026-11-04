@@ -59,3 +59,4 @@ export const POST_ICON_NAMES = Object.keys(POST_ICONS)
 export function getPostIcon(name: string): LucideIcon {
   return POST_ICONS[name] ?? FileText
 }
+

@@ -11,7 +11,6 @@ export interface TocItem {
 export default function TableOfContents({ items }: { items: TocItem[] }) {
   const [activeId, setActiveId] = useState(items[0]?.id)
 
-  // Highlight the last heading that has scrolled past the top third of the screen.
   useEffect(() => {
     const headings = items
       .map((item) => document.getElementById(item.id))
@@ -33,6 +32,8 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [items])
+
+  if (items.length === 0) return null
 
   return (
     <nav
@@ -66,3 +67,4 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
     </nav>
   )
 }
+

@@ -1,30 +1,21 @@
 import { notFound } from 'next/navigation'
 import { requireAdmin } from '@/lib/blog/auth'
-import { getAllPosts } from '@/lib/blog/store'
-import AdminBar from '@/components/secure-blog/AdminBar'
+import { getPostByIdAdmin } from '@/lib/blog/store'
 import PostEditor from '@/components/secure-blog/PostEditor'
 
-type Props = {
-  params: Promise<{ id: string }>
-  searchParams: Promise<{ created?: string }>
-}
+export const dynamic = 'force-dynamic'
 
-export default async function EditPost({ params, searchParams }: Props) {
+type Props = { params: Promise<{ id: string }> }
+
+export default async function EditBlogPage({ params }: Props) {
   await requireAdmin()
-  const [{ id }, { created }] = await Promise.all([params, searchParams])
-  const posts = await getAllPosts()
-  const post = posts.find((p) => p.id === id)
-  if (!post) notFound()
+  const { id } = await params
+  const post = await getPostByIdAdmin(id)
 
-  return (
-    <>
-      <AdminBar total={posts.length} />
-      <PostEditor
-        key={post.id}
-        post={post}
-        today={new Date().toISOString().slice(0, 10)}
-        notice={created ? 'Post created and published.' : undefined}
-      />
-    </>
-  )
+  if (!post) {
+    notFound()
+  }
+
+  return <PostEditor post={post} />
 }
+

@@ -1,25 +1,30 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
-  CircleCheck,
+  CheckCircle,
   CloudUpload,
-  Download,
   Eye,
+  FileCheck,
+  FileEdit,
+  Globe,
+  ImageIcon,
   LoaderCircle,
   Plus,
   Save,
+  Send,
   Trash2,
   TriangleAlert,
+  Upload,
   X,
 } from 'lucide-react'
 import BlogCard from '@/components/BlogCard'
-import { savePostAction } from '@/app/secure-blog/actions'
+import { checkSlugAction, savePostAction } from '@/app/secure-blog/actions'
 import { POST_ICON_NAMES, getPostIcon } from '@/lib/blog/icons'
 import {
   ACCENT_PRESETS,
@@ -32,9 +37,9 @@ import {
   type CoverMotif,
   type Post,
   type PostInput,
+  type PostStatus,
 } from '@/lib/blog/types'
 import { estimateReadingTime, slugify, toLines } from '@/lib/blog/utils'
-import { isValidCoverImage } from '@/lib/blog/validate'
 import {
   hintClass,
   iconButtonClass,
@@ -43,18 +48,18 @@ import {
   panelClass,
   primaryButtonClass,
   secondaryButtonClass,
+  selectClass,
+  textareaClass,
 } from './styles'
 
 /* ------------------------------------------------------------------ */
-/* Editor state                                                        */
+/* Types & Defaults                                                   */
 /* ------------------------------------------------------------------ */
 
 interface SectionDraft {
   key: number
   heading: string
-  /** One paragraph per line */
   paragraphs: string
-  /** One bullet point per line */
   points: string
   calloutType: CalloutType | 'none'
   calloutText: string
@@ -73,10 +78,8 @@ interface Draft {
   category: string
   icon: string
   date: string
-  /** Digits only; empty uses the calculated estimate */
   readTime: string
   coverImage: string
-  // Not editable in the form — preserved so existing covers don't change.
   coverMotif: CoverMotif
   coverLabel: string
   accent: string
@@ -84,26 +87,15 @@ interface Draft {
   takeaways: TakeawayDraft[]
   sections: SectionDraft[]
   conclusion: string
+  status: PostStatus
 }
 
-const MAX_TAGS = 12
-const MAX_TAKEAWAYS = 10
-
-const CALLOUT_LABELS: Record<SectionDraft['calloutType'], string> = {
-  none: 'None',
-  info: 'Info note',
-  tip: 'Tip',
-  warning: 'Warning',
-  quote: 'Pull quote',
-}
-
-// List keys only need to be unique within this page.
-let lastKey = 0
-const nextKey = () => ++lastKey
+let keyCounter = 0
+const getNextKey = () => ++keyCounter
 
 function emptySection(): SectionDraft {
   return {
-    key: nextKey(),
+    key: getNextKey(),
     heading: '',
     paragraphs: '',
     points: '',
@@ -112,7 +104,11 @@ function emptySection(): SectionDraft {
   }
 }
 
-function toDraft(post: Post | null, today: string): Draft {
+function getTodayString(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function postToDraft(post: Post | null): Draft {
   if (!post) {
     return {
       title: '',
@@ -121,18 +117,20 @@ function toDraft(post: Post | null, today: string): Draft {
       intro: '',
       category: CATEGORY_SUGGESTIONS[0],
       icon: POST_ICON_NAMES[0],
-      date: today,
+      date: getTodayString(),
       readTime: '',
       coverImage: '',
       coverMotif: 'network',
       coverLabel: '',
       accent: DEFAULT_ACCENT,
       tags: [],
-      takeaways: [{ key: nextKey(), text: '' }],
+      takeaways: [{ key: getNextKey(), text: '' }],
       sections: [emptySection()],
       conclusion: '',
+      status: 'published',
     }
   }
+
   return {
     title: post.title,
     slug: post.slug,
@@ -140,16 +138,16 @@ function toDraft(post: Post | null, today: string): Draft {
     intro: post.intro,
     category: post.category,
     icon: post.icon,
-    date: post.date,
+    date: post.date || getTodayString(),
     readTime: post.readTime ? String(post.readTime) : '',
-    coverImage: post.cover.image,
-    coverMotif: post.cover.motif,
-    coverLabel: post.cover.label,
-    accent: post.cover.accent,
-    tags: post.tags,
-    takeaways: post.takeaways.map((text) => ({ key: nextKey(), text })),
-    sections: post.sections.map((section) => ({
-      key: nextKey(),
+    coverImage: post.cover?.image || post.cover_image_url || '',
+    coverMotif: post.cover?.motif ?? 'network',
+    coverLabel: post.cover?.label ?? '',
+    accent: post.cover?.accent ?? DEFAULT_ACCENT,
+    tags: Array.isArray(post.tags) ? post.tags : [],
+    takeaways: (post.takeaways || []).map((text) => ({ key: getNextKey(), text })),
+    sections: (post.sections || []).map((section) => ({
+      key: getNextKey(),
       heading: section.heading,
       paragraphs: section.paragraphs.join('\n'),
       points: section.points.join('\n'),
@@ -157,1010 +155,997 @@ function toDraft(post: Post | null, today: string): Draft {
       calloutText: section.callout?.text ?? '',
     })),
     conclusion: post.conclusion,
+    status: post.status === 'draft' ? 'draft' : 'published',
   }
 }
 
-function toInput(draft: Draft): PostInput {
-  const readTime = Number.parseInt(draft.readTime, 10)
-  return {
-    slug: slugify(draft.slug),
-    title: draft.title.trim(),
-    excerpt: draft.excerpt.trim(),
-    intro: draft.intro.trim(),
-    category: draft.category.trim(),
-    icon: draft.icon,
-    date: draft.date,
-    readTime: readTime > 0 ? readTime : null,
-    cover: {
-      image: draft.coverImage.trim(),
-      motif: draft.coverMotif,
-      label: draft.coverLabel.trim(),
-      accent: draft.accent,
-    },
-    tags: draft.tags,
-    takeaways: draft.takeaways.map((t) => t.text.trim()).filter(Boolean),
-    sections: draft.sections.map((section) => ({
-      heading: section.heading.trim(),
-      paragraphs: toLines(section.paragraphs),
-      points: toLines(section.points),
-      callout:
-        section.calloutType !== 'none' && section.calloutText.trim()
-          ? { type: section.calloutType, text: section.calloutText.trim() }
-          : null,
-    })),
-    conclusion: toLines(draft.conclusion).join('\n'),
-  }
-}
-
-/** Lenient while typing; toInput() trims leading/trailing hyphens on save. */
-function sanitizeSlugInput(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/-{2,}/g, '-')
-    .replace(/^-/, '')
-    .slice(0, 100)
-}
-
-function move<T>(items: T[], index: number, offset: number): T[] {
-  const target = index + offset
-  if (target < 0 || target >= items.length) return items
-  const next = [...items]
-  ;[next[index], next[target]] = [next[target], next[index]]
-  return next
-}
-
-/* ------------------------------------------------------------------ */
-/* Editor                                                              */
-/* ------------------------------------------------------------------ */
-
-interface PostEditorProps {
-  post: Post | null
-  today: string
-  notice?: string
-}
-
-/** `content` is the serialised post the message refers to; it hides once edited. */
-type Message = { type: 'success' | 'error'; text: string; content: string }
-
-export default function PostEditor({ post, today, notice }: PostEditorProps) {
+export default function PostEditor({ post = null }: { post?: Post | null }) {
   const router = useRouter()
-  const postId = post?.id ?? null
-  const [initialDraft] = useState(() => toDraft(post, today))
-  const [draft, setDraft] = useState(initialDraft)
-  const [savedSnapshot, setSavedSnapshot] = useState(() =>
-    JSON.stringify(toInput(initialDraft))
-  )
-  const [slugTouched, setSlugTouched] = useState(Boolean(post))
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<Message | null>(
-    notice ? { type: 'success', text: notice, content: savedSnapshot } : null
-  )
+  const isEditing = Boolean(post)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const input = toInput(draft)
-  const content = JSON.stringify(input)
-  const dirty = content !== savedSnapshot
-  const visibleMessage = message?.content === content ? message : null
-  const estimate = estimateReadingTime(input)
-
-  const update = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }))
-
-  const updateSection = (key: number, patch: Partial<SectionDraft>) =>
-    setDraft((d) => ({
-      ...d,
-      sections: d.sections.map((s) => (s.key === key ? { ...s, ...patch } : s)),
-    }))
-
-  const updateTakeaway = (key: number, text: string) =>
-    setDraft((d) => ({
-      ...d,
-      takeaways: d.takeaways.map((t) => (t.key === key ? { ...t, text } : t)),
-    }))
-
-  // Warn before closing the tab with unsaved work.
-  useEffect(() => {
-    if (!dirty) return
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-      event.returnValue = ''
-    }
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty])
-
-  async function handleSave() {
-    if (saving) return
-    setSaving(true)
-    setMessage(null)
-    try {
-      const result = await savePostAction(postId, input)
-      if (!result.ok) {
-        setMessage({ type: 'error', text: result.error, content })
-        return
-      }
-      setSavedSnapshot(content)
-      if (!postId) {
-        router.replace(`/secure-blog/edit/${result.id}?created=1`)
-        return
-      }
-      setMessage({
-        type: 'success',
-        text: 'Post saved and published.',
-        content,
-      })
-      router.refresh()
-    } catch {
-      setMessage({
-        type: 'error',
-        text: 'Could not save. Check your connection and try again.',
-        content,
-      })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Ctrl/Cmd + S saves.
-  const saveRef = useRef(handleSave)
-  saveRef.current = handleSave
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-        event.preventDefault()
-        saveRef.current()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
-
-  function exportJson() {
-    const data = JSON.stringify({ id: postId, ...input }, null, 2)
-    const url = URL.createObjectURL(new Blob([data], { type: 'application/json' }))
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `${input.slug || 'untitled-post'}.json`
-    link.click()
-    URL.revokeObjectURL(url)
-  }
-
-  function removeSection(section: SectionDraft) {
-    const hasContent =
-      section.heading || section.paragraphs || section.points || section.calloutText
-    if (hasContent && !window.confirm('Remove this section and its content?')) return
-    setDraft((d) => ({ ...d, sections: d.sections.filter((s) => s.key !== section.key) }))
-  }
-
-  const previewPost = {
-    ...input,
-    title: input.title || 'Untitled Post',
-    excerpt: input.excerpt || 'No excerpt yet. Add one in Basics & Metadata.',
-    category: input.category || 'Uncategorised',
-    cover: {
-      ...input.cover,
-      image: isValidCoverImage(input.cover.image) ? input.cover.image : '',
-    },
-  }
-
-  const SelectedIcon = getPostIcon(draft.icon)
-
-  return (
-    <>
-      {/* Breadcrumb */}
-      <div className="flex flex-wrap items-center gap-3 mb-6">
-        <Link
-          href="/secure-blog"
-          onClick={(event) => {
-            if (dirty && !window.confirm('Leave without saving your changes?')) {
-              event.preventDefault()
-            }
-          }}
-          className={secondaryButtonClass}
-        >
-          <ArrowLeft size={16} />
-          Back to All Blogs
-        </Link>
-        <p className="text-sm text-slate-500 dark:text-slate-400 min-w-0 truncate">
-          {postId ? 'Now editing:' : 'New post:'}{' '}
-          <span className="font-semibold text-slate-900 dark:text-white">
-            {draft.title.trim() || 'Untitled Post'}
-          </span>
-        </p>
-        {dirty && (
-          <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 text-xs font-semibold">
-            Unsaved changes
-          </span>
-        )}
-      </div>
-
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_340px] gap-8 items-start">
-        <div className="space-y-6 min-w-0">
-          {/* Basics & Metadata */}
-          <Panel
-            title="Basics & Metadata"
-            action={
-              <span className="px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                {postId ? `ID: ${postId.slice(0, 8)}` : 'New post'}
-              </span>
-            }
-          >
-            <div className="space-y-5">
-              <Field label="Post Title" htmlFor="title">
-                <input
-                  id="title"
-                  value={draft.title}
-                  maxLength={160}
-                  onChange={(e) => {
-                    const title = e.target.value
-                    update(slugTouched ? { title } : { title, slug: slugify(title) })
-                  }}
-                  placeholder="Enter a compelling title…"
-                  className={inputClass}
-                />
-              </Field>
-
-              <Field
-                label="URL Slug"
-                htmlFor="slug"
-                hint={`Public URL: /blog/${input.slug || 'your-post-slug'}`}
-              >
-                <input
-                  id="slug"
-                  value={draft.slug}
-                  onChange={(e) => {
-                    setSlugTouched(true)
-                    update({ slug: sanitizeSlugInput(e.target.value) })
-                  }}
-                  placeholder="your-post-slug"
-                  className={`${inputClass} font-mono`}
-                />
-              </Field>
-
-              <Field
-                label="Excerpt"
-                htmlFor="excerpt"
-                hint={`Shown on blog cards and social previews · ${draft.excerpt.length}/400`}
-              >
-                <textarea
-                  id="excerpt"
-                  rows={3}
-                  maxLength={400}
-                  value={draft.excerpt}
-                  onChange={(e) => update({ excerpt: e.target.value })}
-                  placeholder="Write a brief, engaging summary…"
-                  className={`${inputClass} resize-y`}
-                />
-              </Field>
-
-              <Field
-                label="Introduction / Lead Quote"
-                htmlFor="intro"
-                hint="Optional italic quote shown at the start of the article, after the key takeaways."
-              >
-                <textarea
-                  id="intro"
-                  rows={3}
-                  maxLength={1000}
-                  value={draft.intro}
-                  onChange={(e) => update({ intro: e.target.value })}
-                  placeholder="Enter an introductory overview or opening hook…"
-                  className={`${inputClass} resize-y`}
-                />
-              </Field>
-
-              <div className="grid sm:grid-cols-2 gap-5">
-                <Field label="Category" htmlFor="category" hint="Pick one or type your own.">
-                  <input
-                    id="category"
-                    list="category-options"
-                    maxLength={40}
-                    value={draft.category}
-                    onChange={(e) => update({ category: e.target.value })}
-                    className={inputClass}
-                  />
-                  <datalist id="category-options">
-                    {CATEGORY_SUGGESTIONS.map((category) => (
-                      <option key={category} value={category} />
-                    ))}
-                  </datalist>
-                </Field>
-
-                <Field label="Card Icon" htmlFor="icon" hint="Shown on the card and cover.">
-                  <div className="relative">
-                    <SelectedIcon
-                      size={16}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-600 dark:text-blue-400 pointer-events-none"
-                    />
-                    <select
-                      id="icon"
-                      value={draft.icon}
-                      onChange={(e) => update({ icon: e.target.value })}
-                      className={`${inputClass} pl-11`}
-                    >
-                      {POST_ICON_NAMES.map((name) => (
-                        <option key={name} value={name}>
-                          {name.replace(/([a-z])([A-Z])/g, '$1 $2')}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </Field>
-
-                <Field label="Published Date" htmlFor="date">
-                  <input
-                    id="date"
-                    type="date"
-                    value={draft.date}
-                    onChange={(e) => update({ date: e.target.value })}
-                    className={inputClass}
-                  />
-                </Field>
-
-                <Field
-                  label="Read Time"
-                  htmlFor="read-time"
-                  hint={`Calculated estimate: ~${estimate} min read${
-                    draft.readTime ? '' : ' (used while empty)'
-                  }`}
-                >
-                  <div className="relative">
-                    <input
-                      id="read-time"
-                      inputMode="numeric"
-                      maxLength={3}
-                      value={draft.readTime}
-                      onChange={(e) =>
-                        update({ readTime: e.target.value.replace(/\D/g, '') })
-                      }
-                      placeholder={String(estimate)}
-                      className={`${inputClass} pr-24`}
-                    />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-slate-400 dark:text-slate-500 pointer-events-none">
-                      min read
-                    </span>
-                  </div>
-                </Field>
-              </div>
-
-              <Field label="Tags" htmlFor="tags" hint={`Used for search and SEO keywords · ${draft.tags.length}/${MAX_TAGS}`}>
-                <TagInput tags={draft.tags} onChange={(tags) => update({ tags })} />
-              </Field>
-            </div>
-          </Panel>
-
-          {/* Cover */}
-          <Panel
-            title="Cover Design"
-            description="Upload a cover image, or pick the accent colour of the generated cover art."
-          >
-            <div className="space-y-5">
-              <div>
-                <span className={labelClass}>Cover Image</span>
-                <CoverImageField
-                  value={draft.coverImage}
-                  onChange={(coverImage) => update({ coverImage })}
-                />
-              </div>
-
-              <div>
-                <span className={labelClass}>Brand Accent</span>
-                <div className="flex flex-wrap items-center gap-2.5">
-                  {ACCENT_PRESETS.map(({ name, value }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => update({ accent: value })}
-                      aria-label={`${name} accent`}
-                      aria-pressed={draft.accent === value}
-                      title={name}
-                      className={`w-9 h-9 rounded-full border-2 transition-transform hover:scale-110 ${
-                        draft.accent === value
-                          ? 'border-slate-900 dark:border-white scale-110'
-                          : 'border-transparent'
-                      }`}
-                      style={{ backgroundColor: value }}
-                    />
-                  ))}
-                  <label className="inline-flex items-center gap-2 ml-1 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700/70 bg-white dark:bg-slate-950/60 text-xs font-mono text-slate-600 dark:text-slate-400 cursor-pointer">
-                    <input
-                      type="color"
-                      value={draft.accent}
-                      onChange={(e) => update({ accent: e.target.value })}
-                      className="w-6 h-6 rounded cursor-pointer bg-transparent"
-                      aria-label="Custom accent colour"
-                    />
-                    {draft.accent}
-                  </label>
-                </div>
-                <p className={hintClass}>
-                  Colours the generated cover art. Not used when a cover image is set.
-                </p>
-              </div>
-            </div>
-          </Panel>
-
-          {/* Key takeaways */}
-          <Panel
-            title="Key Takeaways"
-            description="Shown in a highlighted box at the top of the article."
-            action={
-              <button
-                type="button"
-                disabled={draft.takeaways.length >= MAX_TAKEAWAYS}
-                onClick={() =>
-                  update({ takeaways: [...draft.takeaways, { key: nextKey(), text: '' }] })
-                }
-                className={`${secondaryButtonClass} py-2`}
-              >
-                <Plus size={14} />
-                Add Takeaway
-              </button>
-            }
-          >
-            {draft.takeaways.length === 0 ? (
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                No takeaways. The box is hidden on the article.
-              </p>
-            ) : (
-              <ol className="space-y-3">
-                {draft.takeaways.map((takeaway, index) => (
-                  <li key={takeaway.key} className="flex gap-3">
-                    <span className="mt-3 w-6 text-right text-sm font-semibold text-slate-400">
-                      {index + 1}.
-                    </span>
-                    <textarea
-                      rows={2}
-                      maxLength={300}
-                      value={takeaway.text}
-                      onChange={(e) => updateTakeaway(takeaway.key, e.target.value)}
-                      placeholder={`Key takeaway #${index + 1}…`}
-                      aria-label={`Key takeaway ${index + 1}`}
-                      className={`${inputClass} resize-y`}
-                    />
-                    <ItemControls
-                      label={`takeaway ${index + 1}`}
-                      isFirst={index === 0}
-                      isLast={index === draft.takeaways.length - 1}
-                      onMove={(offset) =>
-                        update({ takeaways: move(draft.takeaways, index, offset) })
-                      }
-                      onRemove={() =>
-                        update({
-                          takeaways: draft.takeaways.filter((t) => t.key !== takeaway.key),
-                        })
-                      }
-                    />
-                  </li>
-                ))}
-              </ol>
-            )}
-          </Panel>
-
-          {/* Body sections */}
-          <Panel
-            title="Article Body Sections"
-            description="Headings appear in the article's table of contents. The callout shows after the paragraphs, before the key points. Use **text** for bold."
-            action={
-              <button
-                type="button"
-                onClick={() => update({ sections: [...draft.sections, emptySection()] })}
-                className={`${secondaryButtonClass} py-2`}
-              >
-                <Plus size={14} />
-                Add Section
-              </button>
-            }
-          >
-            <div className="space-y-5">
-              {draft.sections.length === 0 && (
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  No sections yet. Add one to start writing.
-                </p>
-              )}
-              {draft.sections.map((section, index) => (
-                <div
-                  key={section.key}
-                  className="p-5 rounded-xl border border-slate-200 dark:border-slate-700/60 bg-white dark:bg-slate-950/40 space-y-4"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="w-7 h-7 shrink-0 rounded-lg bg-blue-600 text-white text-xs font-bold flex items-center justify-center">
-                      {index + 1}
-                    </span>
-                    <input
-                      value={section.heading}
-                      maxLength={160}
-                      onChange={(e) => updateSection(section.key, { heading: e.target.value })}
-                      placeholder="Section heading (optional)"
-                      aria-label={`Section ${index + 1} heading`}
-                      className={`${inputClass} font-semibold`}
-                    />
-                    <ItemControls
-                      horizontal
-                      label={`section ${index + 1}`}
-                      isFirst={index === 0}
-                      isLast={index === draft.sections.length - 1}
-                      onMove={(offset) =>
-                        update({ sections: move(draft.sections, index, offset) })
-                      }
-                      onRemove={() => removeSection(section)}
-                    />
-                  </div>
-
-                  <Field
-                    label="Paragraphs"
-                    htmlFor={`paragraphs-${section.key}`}
-                    hint="One paragraph per line."
-                  >
-                    <textarea
-                      id={`paragraphs-${section.key}`}
-                      rows={6}
-                      value={section.paragraphs}
-                      onChange={(e) =>
-                        updateSection(section.key, { paragraphs: e.target.value })
-                      }
-                      placeholder="Enter body text paragraphs…"
-                      className={`${inputClass} resize-y leading-relaxed`}
-                    />
-                  </Field>
-
-                  <Field
-                    label="Key Points"
-                    htmlFor={`points-${section.key}`}
-                    hint="Optional bullet points. One point per line."
-                  >
-                    <textarea
-                      id={`points-${section.key}`}
-                      rows={3}
-                      value={section.points}
-                      onChange={(e) => updateSection(section.key, { points: e.target.value })}
-                      placeholder="Optional bullet points…"
-                      className={`${inputClass} resize-y`}
-                    />
-                  </Field>
-
-                  <div className="grid sm:grid-cols-[180px_minmax(0,1fr)] gap-4">
-                    <Field label="Callout Type" htmlFor={`callout-type-${section.key}`}>
-                      <select
-                        id={`callout-type-${section.key}`}
-                        value={section.calloutType}
-                        onChange={(e) =>
-                          updateSection(section.key, {
-                            calloutType: e.target.value as SectionDraft['calloutType'],
-                          })
-                        }
-                        className={inputClass}
-                      >
-                        {(['none', ...CALLOUT_TYPES] as const).map((type) => (
-                          <option key={type} value={type}>
-                            {CALLOUT_LABELS[type]}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Callout Text" htmlFor={`callout-text-${section.key}`}>
-                      <textarea
-                        id={`callout-text-${section.key}`}
-                        rows={2}
-                        maxLength={1000}
-                        disabled={section.calloutType === 'none'}
-                        value={section.calloutText}
-                        onChange={(e) =>
-                          updateSection(section.key, { calloutText: e.target.value })
-                        }
-                        placeholder={
-                          section.calloutType === 'none'
-                            ? 'Choose a callout type first'
-                            : 'Callout text…'
-                        }
-                        className={`${inputClass} resize-y`}
-                      />
-                    </Field>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Panel>
-
-          {/* Conclusion */}
-          <Panel title="Summary & Conclusion">
-            <Field
-              label="Conclusion & Takeaway"
-              htmlFor="conclusion"
-              hint="Shown in the “Summary & Takeaway” card at the end of the article. One paragraph per line."
-            >
-              <textarea
-                id="conclusion"
-                rows={4}
-                maxLength={5000}
-                value={draft.conclusion}
-                onChange={(e) => update({ conclusion: e.target.value })}
-                placeholder="Enter a concluding thought or final summary…"
-                className={`${inputClass} resize-y leading-relaxed`}
-              />
-            </Field>
-          </Panel>
-
-          {/* Action bar */}
-          <div className="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl shadow-xl shadow-slate-900/10">
-            <button type="button" onClick={exportJson} className={secondaryButtonClass}>
-              <Download size={16} />
-              Export JSON
-            </button>
-
-            <div className="flex-1 min-w-0 text-sm" aria-live="polite">
-              {visibleMessage && (
-                <p
-                  className={`inline-flex items-start gap-2 ${
-                    visibleMessage.type === 'success'
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-red-600 dark:text-red-400'
-                  }`}
-                >
-                  {visibleMessage.type === 'success' ? (
-                    <CircleCheck size={16} className="shrink-0 mt-0.5" />
-                  ) : (
-                    <TriangleAlert size={16} className="shrink-0 mt-0.5" />
-                  )}
-                  {visibleMessage.text}
-                </p>
-              )}
-            </div>
-
-            {post && (
-              <a
-                href={`/blog/${post.slug}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={secondaryButtonClass}
-              >
-                <Eye size={16} />
-                View
-              </a>
-            )}
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              title="Save (Ctrl+S)"
-              className={primaryButtonClass}
-            >
-              {saving ? (
-                <LoaderCircle size={16} className="animate-spin" />
-              ) : (
-                <Save size={16} />
-              )}
-              Save Post
-            </button>
-          </div>
-        </div>
-
-        {/* Live preview */}
-        <aside className="lg:sticky lg:top-24 space-y-4">
-          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-            <Eye size={14} />
-            Live Card Preview
-          </p>
-          <BlogCard post={previewPost} preview />
-        </aside>
-      </div>
-    </>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* Building blocks                                                     */
-/* ------------------------------------------------------------------ */
-
-function Panel({
-  title,
-  description,
-  action,
-  children,
-}: {
-  title: string
-  description?: string
-  action?: React.ReactNode
-  children: React.ReactNode
-}) {
-  return (
-    <section className={`p-6 sm:p-7 ${panelClass}`}>
-      <div className="flex flex-wrap items-start justify-between gap-4 pb-5 mb-6 border-b border-slate-200 dark:border-slate-800">
-        <div>
-          <h2 className="text-base font-bold text-slate-900 dark:text-white">{title}</h2>
-          {description && (
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{description}</p>
-          )}
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function Field({
-  label,
-  htmlFor,
-  hint,
-  children,
-}: {
-  label: string
-  htmlFor: string
-  hint?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div>
-      <label htmlFor={htmlFor} className={labelClass}>
-        {label}
-      </label>
-      {children}
-      {hint && <p className={hintClass}>{hint}</p>}
-    </div>
-  )
-}
-
-function ItemControls({
-  label,
-  isFirst,
-  isLast,
-  onMove,
-  onRemove,
-  horizontal = false,
-}: {
-  label: string
-  isFirst: boolean
-  isLast: boolean
-  onMove: (offset: number) => void
-  onRemove: () => void
-  horizontal?: boolean
-}) {
-  return (
-    <div className={`flex gap-1.5 shrink-0 ${horizontal ? 'flex-row' : 'flex-col'}`}>
-      <button
-        type="button"
-        disabled={isFirst}
-        onClick={() => onMove(-1)}
-        aria-label={`Move ${label} up`}
-        className={iconButtonClass}
-      >
-        <ArrowUp size={14} />
-      </button>
-      <button
-        type="button"
-        disabled={isLast}
-        onClick={() => onMove(1)}
-        aria-label={`Move ${label} down`}
-        className={iconButtonClass}
-      >
-        <ArrowDown size={14} />
-      </button>
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Remove ${label}`}
-        className={`${iconButtonClass} hover:!text-red-600 dark:hover:!text-red-400 hover:!border-red-300 dark:hover:!border-red-800`}
-      >
-        <Trash2 size={14} />
-      </button>
-    </div>
-  )
-}
-
-function TagInput({
-  tags,
-  onChange,
-}: {
-  tags: string[]
-  onChange: (tags: string[]) => void
-}) {
-  const [value, setValue] = useState('')
-
-  function addTag() {
-    const tag = value.trim().replace(/,+$/, '')
-    const exists = tags.some((t) => t.toLowerCase() === tag.toLowerCase())
-    if (tag && !exists && tags.length < MAX_TAGS) onChange([...tags, tag])
-    setValue('')
-  }
-
-  return (
-    <>
-      {tags.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-3">
-          {tags.map((tag) => (
-            <span
-              key={tag}
-              className="inline-flex items-center gap-1 pl-3 pr-1.5 py-1 rounded-full bg-blue-600 text-white text-xs font-semibold"
-            >
-              {tag}
-              <button
-                type="button"
-                onClick={() => onChange(tags.filter((t) => t !== tag))}
-                aria-label={`Remove tag ${tag}`}
-                className="p-0.5 rounded-full hover:bg-white/20"
-              >
-                <X size={12} />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <div className="flex gap-2">
-        <input
-          id="tags"
-          value={value}
-          maxLength={32}
-          disabled={tags.length >= MAX_TAGS}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ',') {
-              e.preventDefault()
-              addTag()
-            }
-          }}
-          placeholder="Type a tag and press Enter"
-          className={inputClass}
-        />
-        <button
-          type="button"
-          onClick={addTag}
-          disabled={!value.trim() || tags.length >= MAX_TAGS}
-          className={`${secondaryButtonClass} shrink-0 whitespace-nowrap`}
-        >
-          Add Tag
-        </button>
-      </div>
-    </>
-  )
-}
-
-function CoverImageField({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (url: string) => void
-}) {
-  const fileInput = useRef<HTMLInputElement>(null)
-  const [dragging, setDragging] = useState(false)
+  const [draft, setDraft] = useState<Draft>(() => postToDraft(post))
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(isEditing)
+  const [tagInput, setTagInput] = useState('')
   const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [showUrlInput, setShowUrlInput] = useState(value.startsWith('https://'))
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveActionType, setSaveActionType] = useState<PostStatus>('published')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [slugStatus, setSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle')
 
-  async function upload(file: File) {
-    setError(null)
-    if (!UPLOAD_MIME_TYPES.includes(file.type)) {
-      setError('Only PNG, JPG, WEBP, GIF or AVIF images are allowed.')
+  // Auto-slugify when title changes (unless manually edited)
+  const handleTitleChange = (newTitle: string) => {
+    setDraft((prev) => ({
+      ...prev,
+      title: newTitle,
+      slug: slugManuallyEdited ? prev.slug : slugify(newTitle),
+    }))
+  }
+
+  // Check slug uniqueness with debounce
+  useEffect(() => {
+    if (!draft.slug) {
+      setSlugStatus('idle')
       return
     }
-    if (file.size > MAX_UPLOAD_BYTES) {
-      setError('Image must be 5 MB or smaller.')
-      return
-    }
-    setUploading(true)
-    try {
-      const body = new FormData()
-      body.append('file', file)
-      const response = await fetch('/api/blog/upload', { method: 'POST', body })
-      const data = (await response.json().catch(() => ({}))) as {
-        url?: string
-        error?: string
+
+    setSlugStatus('checking')
+    const timer = setTimeout(async () => {
+      try {
+        const { available } = await checkSlugAction(draft.slug, post?.id)
+        setSlugStatus(available ? 'available' : 'taken')
+      } catch {
+        setSlugStatus('idle')
       }
-      if (!response.ok || !data.url) throw new Error(data.error ?? 'Upload failed.')
-      onChange(data.url)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed.')
+    }, 400)
+
+    return () => clearTimeout(timer)
+  }, [draft.slug, post?.id])
+
+  // Handle secure image upload via server API (uploads to S3 without browser CORS issues)
+  const handleFileUpload = async (file: File) => {
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setErrorMessage('Image file must be 5 MB or smaller.')
+      return
+    }
+
+    if (!UPLOAD_MIME_TYPES.includes(file.type.toLowerCase())) {
+      setErrorMessage('Allowed image formats: JPEG, PNG, WEBP, GIF, AVIF.')
+      return
+    }
+
+    setUploading(true)
+    setUploadProgress('Uploading cover image...')
+    setErrorMessage(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const res = await fetch('/api/blog/admin/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to upload image.')
+      }
+
+      setDraft((prev) => ({
+        ...prev,
+        coverImage: data.canonicalUrl,
+      }))
+      setUploadProgress(null)
+      if (data.storage === 'local' && data.warning) {
+        setSuccessMessage(`Cover image saved locally (${data.warning})`)
+      } else {
+        setSuccessMessage('Cover image uploaded to AWS S3 successfully!')
+      }
+      setTimeout(() => setSuccessMessage(null), 4000)
+    } catch (err: unknown) {
+      console.error('Image upload error:', err)
+      setErrorMessage((err as Error).message || 'Failed to upload cover image.')
+      setUploadProgress(null)
     } finally {
       setUploading(false)
     }
   }
 
-  const openPicker = () => fileInput.current?.click()
+  // Tag management
+  const addTag = (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed || draft.tags.includes(trimmed)) return
+    setDraft((prev) => ({ ...prev, tags: [...prev.tags, trimmed] }))
+    setTagInput('')
+  }
+
+  const removeTag = (tagToRemove: string) => {
+    setDraft((prev) => ({
+      ...prev,
+      tags: prev.tags.filter((t) => t !== tagToRemove),
+    }))
+  }
+
+  // Section management
+  const addSection = () => {
+    setDraft((prev) => ({
+      ...prev,
+      sections: [...prev.sections, emptySection()],
+    }))
+  }
+
+  const removeSection = (key: number) => {
+    if (draft.sections.length <= 1) return
+    setDraft((prev) => ({
+      ...prev,
+      sections: prev.sections.filter((s) => s.key !== key),
+    }))
+  }
+
+  const moveSection = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= draft.sections.length) return
+    const newSections = [...draft.sections]
+    const temp = newSections[index]
+    newSections[index] = newSections[targetIndex]
+    newSections[targetIndex] = temp
+    setDraft((prev) => ({ ...prev, sections: newSections }))
+  }
+
+  // Takeaway management
+  const addTakeaway = () => {
+    setDraft((prev) => ({
+      ...prev,
+      takeaways: [...prev.takeaways, { key: getNextKey(), text: '' }],
+    }))
+  }
+
+  const removeTakeaway = (key: number) => {
+    setDraft((prev) => ({
+      ...prev,
+      takeaways: prev.takeaways.filter((t) => t.key !== key),
+    }))
+  }
+
+  // Preview Post Object for live preview
+  const previewPost: Post = useMemo(() => {
+    const readTimeInt = Number.parseInt(draft.readTime, 10)
+    return {
+      id: post?.id || 'preview',
+      slug: slugify(draft.slug) || 'slug-preview',
+      title: draft.title || 'Your Article Title Goes Here',
+      excerpt: draft.excerpt || 'Write a compelling excerpt describing your article...',
+      intro: draft.intro,
+      category: draft.category || 'Enterprise AI',
+      icon: draft.icon || 'ShieldCheck',
+      date: draft.date || getTodayString(),
+      readTime: !isNaN(readTimeInt) && readTimeInt > 0 ? readTimeInt : null,
+      cover: {
+        image: draft.coverImage,
+        motif: draft.coverMotif,
+        label: draft.coverLabel || draft.category,
+        accent: draft.accent,
+      },
+      cover_image_url: draft.coverImage,
+      tags: draft.tags,
+      takeaways: draft.takeaways.map((t) => t.text).filter(Boolean),
+      sections: draft.sections.map((s) => ({
+        heading: s.heading,
+        paragraphs: toLines(s.paragraphs),
+        points: toLines(s.points),
+        callout: s.calloutType !== 'none' && s.calloutText ? { type: s.calloutType, text: s.calloutText } : null,
+      })),
+      conclusion: draft.conclusion,
+      status: draft.status,
+      updatedAt: new Date().toISOString(),
+    }
+  }, [draft, post?.id])
+
+  // Save handler (Draft or Publish)
+  const handleSave = async (statusToSet: PostStatus) => {
+    setSaving(true)
+    setSaveActionType(statusToSet)
+    setErrorMessage(null)
+
+    const finalSlug = slugify(draft.slug)
+    if (!finalSlug) {
+      setErrorMessage('Please provide a valid URL slug.')
+      setSaving(false)
+      return
+    }
+
+    if (!draft.title.trim()) {
+      setErrorMessage('Please enter an article title.')
+      setSaving(false)
+      return
+    }
+
+    const readTimeNum = Number.parseInt(draft.readTime, 10)
+    const input: PostInput = {
+      slug: finalSlug,
+      title: draft.title.trim(),
+      excerpt: draft.excerpt.trim(),
+      intro: draft.intro.trim(),
+      category: draft.category.trim() || 'General',
+      icon: draft.icon,
+      date: draft.date || getTodayString(),
+      readTime: !isNaN(readTimeNum) && readTimeNum > 0 ? readTimeNum : null,
+      cover: {
+        image: draft.coverImage.trim(),
+        motif: draft.coverMotif,
+        label: draft.coverLabel.trim(),
+        accent: draft.accent,
+      },
+      cover_image_url: draft.coverImage.trim(),
+      tags: draft.tags,
+      takeaways: draft.takeaways.map((t) => t.text.trim()).filter(Boolean),
+      sections: draft.sections.map((section) => ({
+        heading: section.heading.trim(),
+        paragraphs: toLines(section.paragraphs),
+        points: toLines(section.points),
+        callout:
+          section.calloutType !== 'none' && section.calloutText.trim()
+            ? { type: section.calloutType, text: section.calloutText.trim() }
+            : null,
+      })),
+      conclusion: toLines(draft.conclusion).join('\n'),
+      status: statusToSet,
+    }
+
+    try {
+      const result = await savePostAction(post?.id ?? null, input)
+      if (!result.ok) {
+        setErrorMessage(result.error)
+        setSaving(false)
+        return
+      }
+
+      setSuccessMessage(
+        statusToSet === 'published'
+          ? 'Article published successfully to live website!'
+          : 'Draft saved successfully.'
+      )
+
+      setTimeout(() => {
+        router.push('/secure-blog')
+        router.refresh()
+      }, 800)
+    } catch (err: unknown) {
+      console.error('Save error:', err)
+      setErrorMessage((err as Error).message || 'Failed to save blog post to PostgreSQL.')
+      setSaving(false)
+    }
+  }
 
   return (
-    <div>
-      {value && isValidCoverImage(value) ? (
-        <div className="relative aspect-[16/9] max-w-md overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700/70 bg-slate-950">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={value} alt="Cover preview" className="w-full h-full object-cover" />
-          <div className="absolute top-2 right-2 flex gap-2">
+    <div className="pb-24">
+      {/* Top Header & Actions Bar */}
+      <div className={`p-5 sm:p-6 mb-8 ${panelClass} sticky top-20 z-30 backdrop-blur-md bg-white/95 dark:bg-slate-900/95`}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/secure-blog"
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              title="Back to dashboard"
+            >
+              <ArrowLeft size={18} />
+            </Link>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                {isEditing ? 'Edit Blog Article' : 'Add New Blog'}
+              </h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {isEditing ? `Editing "${post?.title}"` : 'Create and publish articles directly to PostgreSQL & S3'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <Link
+              href="/secure-blog"
+              className={secondaryButtonClass}
+            >
+              Cancel
+            </Link>
+
+            {/* Save as Draft */}
             <button
               type="button"
-              onClick={openPicker}
-              disabled={uploading}
-              className="px-3 py-1.5 rounded-lg bg-slate-950/80 backdrop-blur text-white text-xs font-semibold hover:bg-slate-900"
+              disabled={saving || uploading}
+              onClick={() => handleSave('draft')}
+              className={`${secondaryButtonClass} border-amber-300/50 dark:border-amber-800/60 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30`}
             >
-              {uploading ? 'Uploading…' : 'Replace'}
+              {saving && saveActionType === 'draft' ? (
+                <LoaderCircle size={16} className="animate-spin" />
+              ) : (
+                <Save size={16} />
+              )}
+              <span>Save as Draft</span>
             </button>
+
+            {/* Publish */}
             <button
               type="button"
-              onClick={() => onChange('')}
-              className="px-3 py-1.5 rounded-lg bg-red-600/90 text-white text-xs font-semibold hover:bg-red-600"
+              disabled={saving || uploading}
+              onClick={() => handleSave('published')}
+              className={primaryButtonClass}
             >
-              Remove
+              {saving && saveActionType === 'published' ? (
+                <LoaderCircle size={16} className="animate-spin" />
+              ) : (
+                <Send size={16} />
+              )}
+              <span>Publish Article</span>
             </button>
           </div>
         </div>
-      ) : (
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={openPicker}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              openPicker()
-            }
-          }}
-          onDragOver={(e) => {
-            e.preventDefault()
-            setDragging(true)
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault()
-            setDragging(false)
-            const file = e.dataTransfer.files[0]
-            if (file) upload(file)
-          }}
-          className={`flex flex-col items-center justify-center gap-3 px-6 py-10 rounded-xl border-2 border-dashed text-center cursor-pointer transition-colors ${
-            dragging
-              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30'
-              : 'border-slate-300 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-600 bg-white dark:bg-slate-950/40'
-          }`}
-        >
-          <span className="w-11 h-11 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center">
-            {uploading ? (
-              <LoaderCircle size={20} className="animate-spin text-blue-600 dark:text-blue-400" />
-            ) : (
-              <CloudUpload size={20} className="text-blue-600 dark:text-blue-400" />
-            )}
-          </span>
-          <span className="text-sm font-semibold text-slate-900 dark:text-white">
-            {uploading ? 'Uploading…' : 'Click to upload image or drag & drop'}
-          </span>
-          <span className="text-xs text-slate-500">
-            PNG, JPG, WEBP, GIF or AVIF (max 5 MB)
-          </span>
+      </div>
+
+      {/* Notifications */}
+      {errorMessage && (
+        <div className="mb-6 p-4 rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-sm text-red-600 dark:text-red-400 flex items-center gap-3">
+          <TriangleAlert size={18} className="shrink-0" />
+          <span>{errorMessage}</span>
         </div>
       )}
 
-      <input
-        ref={fileInput}
-        type="file"
-        accept={UPLOAD_MIME_TYPES.join(',')}
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) upload(file)
-          e.target.value = ''
-        }}
-      />
-
-      {error && (
-        <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">
-          {error}
-        </p>
+      {successMessage && (
+        <div className="mb-6 p-4 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/40 text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-3">
+          <CheckCircle size={18} className="shrink-0" />
+          <span>{successMessage}</span>
+        </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => setShowUrlInput((v) => !v)}
-        className="mt-3 text-xs text-blue-600 dark:text-blue-400 underline underline-offset-2"
-      >
-        {showUrlInput ? 'Hide image URL field' : 'Or enter an image URL manually'}
-      </button>
-      {showUrlInput && (
-        <input
-          type="url"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="https://example.com/cover.jpg"
-          aria-label="Cover image URL"
-          className={`${inputClass} mt-2`}
-        />
-      )}
-      <p className={hintClass}>Without an image, the generated cover below is used.</p>
+      {/* Main Two-Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8 items-start">
+        {/* Left Column: Form Cards */}
+        <div className="space-y-8 min-w-0">
+          {/* Card 1: Basic Information */}
+          <section className={`p-6 sm:p-7 ${panelClass}`}>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white uppercase tracking-wider mb-5 flex items-center gap-2">
+              <FileEdit size={18} className="text-blue-500" />
+              Basic Information
+            </h2>
+
+            <div className="space-y-5">
+              {/* Title */}
+              <div>
+                <label className={labelClass}>Article Title *</label>
+                <input
+                  type="text"
+                  value={draft.title}
+                  onChange={(e) => handleTitleChange(e.target.value)}
+                  placeholder="e.g. Enterprise AI Security in Production"
+                  required
+                  className={inputClass}
+                />
+              </div>
+
+              {/* Slug with Real-Time Validation */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className={labelClass}>URL Slug *</label>
+                  {draft.slug && (
+                    <span className="text-xs font-mono">
+                      {slugStatus === 'checking' && <span className="text-slate-400">Checking...</span>}
+                      {slugStatus === 'available' && (
+                        <span className="text-emerald-500 font-semibold flex items-center gap-1">
+                          <CheckCircle size={12} /> Slug available
+                        </span>
+                      )}
+                      {slugStatus === 'taken' && (
+                        <span className="text-red-500 font-semibold flex items-center gap-1">
+                          <TriangleAlert size={12} /> Slug already in use
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden focus-within:ring-2 focus-within:ring-blue-500">
+                  <span className="pl-4 pr-1 text-xs text-slate-400 font-mono select-none">
+                    /blog/
+                  </span>
+                  <input
+                    type="text"
+                    value={draft.slug}
+                    onChange={(e) => {
+                      setSlugManuallyEdited(true)
+                      setDraft((prev) => ({ ...prev, slug: slugify(e.target.value) }))
+                    }}
+                    placeholder="enterprise-ai-security"
+                    className="flex-1 py-2.5 pr-4 bg-transparent text-sm text-slate-900 dark:text-white focus:outline-none font-mono"
+                  />
+                </div>
+                <p className={hintClass}>
+                  Generated automatically from the title. You can customize it anytime.
+                </p>
+              </div>
+
+              {/* Excerpt */}
+              <div>
+                <label className={labelClass}>Excerpt (Article Summary) *</label>
+                <textarea
+                  rows={3}
+                  value={draft.excerpt}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, excerpt: e.target.value }))}
+                  placeholder="A concise summary of the article for blog cards and search engine previews..."
+                  className={textareaClass}
+                />
+              </div>
+
+              {/* Intro / Lead Quote */}
+              <div>
+                <label className={labelClass}>Introduction Lead (Italic Quote)</label>
+                <textarea
+                  rows={2}
+                  value={draft.intro}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, intro: e.target.value }))}
+                  placeholder="An opening thesis or thought-provoking lead statement..."
+                  className={textareaClass}
+                />
+              </div>
+
+              {/* Category, Date & Read Time Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className={labelClass}>Category *</label>
+                  <select
+                    value={draft.category}
+                    onChange={(e) => setDraft((prev) => ({ ...prev, category: e.target.value }))}
+                    className={selectClass}
+                  >
+                    {CATEGORY_SUGGESTIONS.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className={labelClass}>Publication Date</label>
+                  <input
+                    type="date"
+                    value={draft.date}
+                    onChange={(e) => setDraft((prev) => ({ ...prev, date: e.target.value }))}
+                    className={inputClass}
+                  />
+                </div>
+
+                <div>
+                  <label className={labelClass}>Read Time (Minutes)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder={`Auto (${estimateReadingTime(previewPost)}m)`}
+                    value={draft.readTime}
+                    onChange={(e) => setDraft((prev) => ({ ...prev, readTime: e.target.value }))}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              {/* Status Selector */}
+              <div>
+                <label className={labelClass}>Publication Status</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setDraft((prev) => ({ ...prev, status: 'published' }))}
+                    className={`py-2.5 px-4 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-2 ${
+                      draft.status === 'published'
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                        : 'border-slate-200 dark:border-slate-800 text-slate-500'
+                    }`}
+                  >
+                    <CheckCircle size={14} />
+                    <span>Published</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setDraft((prev) => ({ ...prev, status: 'draft' }))}
+                    className={`py-2.5 px-4 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-2 ${
+                      draft.status === 'draft'
+                        ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300'
+                        : 'border-slate-200 dark:border-slate-800 text-slate-500'
+                    }`}
+                  >
+                    <FileEdit size={14} />
+                    <span>Draft</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Tags */}
+              <div>
+                <label className={labelClass}>Article Tags</label>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {draft.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900/60 text-xs font-semibold text-blue-700 dark:text-blue-300"
+                    >
+                      #{tag}
+                      <button
+                        type="button"
+                        onClick={() => removeTag(tag)}
+                        className="text-blue-400 hover:text-blue-700 dark:hover:text-white"
+                      >
+                        <X size={13} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addTag(tagInput)
+                      }
+                    }}
+                    placeholder="Add a tag and press Enter (e.g. RAG, GenAI, Security)..."
+                    className={inputClass}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addTag(tagInput)}
+                    className={secondaryButtonClass}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Card 2: Cover Image & AWS S3 Upload */}
+          <section className={`p-6 sm:p-7 ${panelClass}`}>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white uppercase tracking-wider mb-5 flex items-center gap-2">
+              <ImageIcon size={18} className="text-blue-500" />
+              Cover Image (AWS S3)
+            </h2>
+
+            <div className="space-y-5">
+              {/* Dropzone Upload */}
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  if (e.dataTransfer.files?.[0]) {
+                    handleFileUpload(e.dataTransfer.files[0])
+                  }
+                }}
+                className={`border-2 border-dashed rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition-all ${
+                  uploading
+                    ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/20'
+                    : 'border-slate-300 dark:border-slate-700 hover:border-blue-500 hover:bg-slate-50 dark:hover:bg-slate-950/40'
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) {
+                      handleFileUpload(e.target.files[0])
+                    }
+                  }}
+                />
+
+                <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-900/60 flex items-center justify-center text-blue-600 dark:text-blue-400 mx-auto mb-3">
+                  {uploading ? (
+                    <LoaderCircle size={22} className="animate-spin" />
+                  ) : (
+                    <CloudUpload size={22} />
+                  )}
+                </div>
+
+                <p className="text-sm font-semibold text-slate-900 dark:text-white mb-1">
+                  {uploading ? uploadProgress : 'Click to upload or drag and drop image'}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  PNG, JPEG, WebP, GIF up to 5 MB &bull; Uploads directly to bucket blogs-neo
+                </p>
+              </div>
+
+              {/* S3 Image URL input (auto-populated or manual override) */}
+              <div>
+                <label className={labelClass}>Direct S3 Image URL</label>
+                <input
+                  type="url"
+                  value={draft.coverImage}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, coverImage: e.target.value }))}
+                  placeholder="https://blogs-neo.s3.ap-south-1.amazonaws.com/blogs/..."
+                  className={inputClass}
+                />
+                <p className={hintClass}>
+                  Populated automatically upon upload. Local paths and external HTTPS images are also supported.
+                </p>
+              </div>
+
+              {/* Fallback Artwork Settings (accent, motif, icon) */}
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
+                  Fallback Visual Design (When no custom image is set)
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Accent Presets */}
+                  <div>
+                    <label className={labelClass}>Accent Color</label>
+                    <div className="flex items-center gap-2">
+                      {ACCENT_PRESETS.map((p) => (
+                        <button
+                          key={p.value}
+                          type="button"
+                          onClick={() => setDraft((prev) => ({ ...prev, accent: p.value }))}
+                          style={{ backgroundColor: p.value }}
+                          className={`w-6 h-6 rounded-full border-2 transition ${
+                            draft.accent === p.value ? 'scale-110 border-white' : 'border-transparent'
+                          }`}
+                          title={p.name}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Motif */}
+                  <div>
+                    <label className={labelClass}>Geometric Motif</label>
+                    <select
+                      value={draft.coverMotif}
+                      onChange={(e) =>
+                        setDraft((prev) => ({ ...prev, coverMotif: e.target.value as CoverMotif }))
+                      }
+                      className={selectClass}
+                    >
+                      <option value="network">Network Grid</option>
+                      <option value="pipeline">Data Pipeline</option>
+                      <option value="trace">Trace Analytics</option>
+                    </select>
+                  </div>
+
+                  {/* Icon */}
+                  <div>
+                    <label className={labelClass}>Theme Icon</label>
+                    <select
+                      value={draft.icon}
+                      onChange={(e) => setDraft((prev) => ({ ...prev, icon: e.target.value }))}
+                      className={selectClass}
+                    >
+                      {POST_ICON_NAMES.map((iconName) => (
+                        <option key={iconName} value={iconName}>
+                          {iconName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Card 3: Key Takeaways */}
+          <section className={`p-6 sm:p-7 ${panelClass}`}>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-base font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                <FileCheck size={18} className="text-blue-500" />
+                Key Architectural Takeaways
+              </h2>
+              <button
+                type="button"
+                onClick={addTakeaway}
+                className={`text-xs ${secondaryButtonClass} py-1.5 px-3`}
+              >
+                <Plus size={14} />
+                Add Point
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {draft.takeaways.map((item, index) => (
+                <div key={item.key} className="flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 text-xs font-bold flex items-center justify-center shrink-0">
+                    {index + 1}
+                  </span>
+                  <input
+                    type="text"
+                    value={item.text}
+                    onChange={(e) => {
+                      const newText = e.target.value
+                      setDraft((prev) => ({
+                        ...prev,
+                        takeaways: prev.takeaways.map((t) =>
+                          t.key === item.key ? { ...t, text: newText } : t
+                        ),
+                      }))
+                    }}
+                    placeholder="Enter an important key takeaway point..."
+                    className={inputClass}
+                  />
+                  {draft.takeaways.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeTakeaway(item.key)}
+                      className={iconButtonClass}
+                      title="Remove point"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Card 4: Article Sections */}
+          <section className={`p-6 sm:p-7 ${panelClass}`}>
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                  Article Sections
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Organize your article into modular headings, paragraphs, bullet lists, and callout boxes.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={addSection}
+                className={primaryButtonClass}
+              >
+                <Plus size={15} />
+                Add Section
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {draft.sections.map((section, idx) => (
+                <div
+                  key={section.key}
+                  className="p-5 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 space-y-4"
+                >
+                  <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+                    <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                      Section {idx + 1}
+                    </span>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={() => moveSection(idx, 'up')}
+                        className={`${iconButtonClass} p-1.5 disabled:opacity-30`}
+                        title="Move Up"
+                      >
+                        <ArrowUp size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === draft.sections.length - 1}
+                        onClick={() => moveSection(idx, 'down')}
+                        className={`${iconButtonClass} p-1.5 disabled:opacity-30`}
+                        title="Move Down"
+                      >
+                        <ArrowDown size={14} />
+                      </button>
+                      {draft.sections.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeSection(section.key)}
+                          className={`${iconButtonClass} p-1.5 text-red-500 hover:text-red-700`}
+                          title="Delete Section"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Section Heading */}
+                  <div>
+                    <label className={labelClass}>Section Heading</label>
+                    <input
+                      type="text"
+                      value={section.heading}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setDraft((prev) => ({
+                          ...prev,
+                          sections: prev.sections.map((s) =>
+                            s.key === section.key ? { ...s, heading: val } : s
+                          ),
+                        }))
+                      }}
+                      placeholder="e.g. 1. Fragile ingestion pipelines in production"
+                      className={inputClass}
+                    />
+                  </div>
+
+                  {/* Paragraphs */}
+                  <div>
+                    <label className={labelClass}>Paragraphs (Enter each paragraph on a new line)</label>
+                    <textarea
+                      rows={4}
+                      value={section.paragraphs}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setDraft((prev) => ({
+                          ...prev,
+                          sections: prev.sections.map((s) =>
+                            s.key === section.key ? { ...s, paragraphs: val } : s
+                          ),
+                        }))
+                      }}
+                      placeholder="Write your article narrative here. Use **bold** for emphasized text..."
+                      className={textareaClass}
+                    />
+                  </div>
+
+                  {/* Bullet Points */}
+                  <div>
+                    <label className={labelClass}>Bullet Points (Optional - 1 per line)</label>
+                    <textarea
+                      rows={2}
+                      value={section.points}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setDraft((prev) => ({
+                          ...prev,
+                          sections: prev.sections.map((s) =>
+                            s.key === section.key ? { ...s, points: val } : s
+                          ),
+                        }))
+                      }}
+                      placeholder="Bullet point item 1&#10;Bullet point item 2"
+                      className={textareaClass}
+                    />
+                  </div>
+
+                  {/* Callout box */}
+                  <div className="pt-3 border-t border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-3">
+                    <div>
+                      <label className={labelClass}>Callout Box</label>
+                      <select
+                        value={section.calloutType}
+                        onChange={(e) => {
+                          const val = e.target.value as SectionDraft['calloutType']
+                          setDraft((prev) => ({
+                            ...prev,
+                            sections: prev.sections.map((s) =>
+                              s.key === section.key ? { ...s, calloutType: val } : s
+                            ),
+                          }))
+                        }}
+                        className={selectClass}
+                      >
+                        <option value="none">None</option>
+                        <option value="info">Info note</option>
+                        <option value="tip">Pro tip</option>
+                        <option value="warning">Warning</option>
+                        <option value="quote">Pull quote</option>
+                      </select>
+                    </div>
+
+                    {section.calloutType !== 'none' && (
+                      <div>
+                        <label className={labelClass}>Callout Content</label>
+                        <input
+                          type="text"
+                          value={section.calloutText}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setDraft((prev) => ({
+                              ...prev,
+                              sections: prev.sections.map((s) =>
+                                s.key === section.key ? { ...s, calloutText: val } : s
+                              ),
+                            }))
+                          }}
+                          placeholder="Highlight key takeaway, caution, or architectural quote..."
+                          className={inputClass}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Card 5: Conclusion */}
+          <section className={`p-6 sm:p-7 ${panelClass}`}>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white uppercase tracking-wider mb-4">
+              Conclusion
+            </h2>
+            <textarea
+              rows={4}
+              value={draft.conclusion}
+              onChange={(e) => setDraft((prev) => ({ ...prev, conclusion: e.target.value }))}
+              placeholder="Wrap up the article with strategic takeaways or final engineering guidance..."
+              className={textareaClass}
+            />
+          </section>
+        </div>
+
+        {/* Right Column: Live Card Preview & Publishing Summary */}
+        <aside className="sticky top-44 space-y-6">
+          {/* Card Preview */}
+          <div className={`p-5 ${panelClass}`}>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                <Eye size={14} className="text-blue-500" />
+                Live Card Preview
+              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">
+                /blog
+              </span>
+            </div>
+
+            <div className="pointer-events-none">
+              <BlogCard post={previewPost} preview />
+            </div>
+          </div>
+
+          {/* Publishing Meta Information */}
+          <div className={`p-5 ${panelClass} text-xs space-y-3`}>
+            <p className="font-bold uppercase tracking-wider text-slate-900 dark:text-white mb-2">
+              Publishing Meta
+            </p>
+
+            <div className="flex justify-between text-slate-500 dark:text-slate-400">
+              <span>Status:</span>
+              <span
+                className={`font-semibold capitalize px-2 py-0.5 rounded ${
+                  draft.status === 'published'
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                }`}
+              >
+                {draft.status}
+              </span>
+            </div>
+
+            <div className="flex justify-between text-slate-500 dark:text-slate-400">
+              <span>Estimated read time:</span>
+              <span className="font-semibold text-slate-900 dark:text-white">
+                {estimateReadingTime(previewPost)} min
+              </span>
+            </div>
+
+            <div className="flex justify-between text-slate-500 dark:text-slate-400">
+              <span>Article sections:</span>
+              <span className="font-semibold text-slate-900 dark:text-white">
+                {draft.sections.length}
+              </span>
+            </div>
+
+            <div className="flex justify-between text-slate-500 dark:text-slate-400">
+              <span>Cover Image:</span>
+              <span className="font-semibold text-slate-900 dark:text-white truncate max-w-[150px]">
+                {draft.coverImage ? (draft.coverImage.includes('s3') ? 'AWS S3' : draft.coverImage.startsWith('/uploads') ? 'Local' : 'External') : 'Generated'}
+              </span>
+            </div>
+
+            {isEditing && (
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between text-slate-400">
+                <span>Database ID:</span>
+                <span className="font-mono text-[10px] truncate max-w-[150px]">{post?.id}</span>
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
     </div>
   )
 }

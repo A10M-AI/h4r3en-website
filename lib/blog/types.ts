@@ -14,6 +14,8 @@ export interface PostSection {
   callout: { type: CalloutType; text: string } | null
 }
 
+export type PostStatus = 'draft' | 'published'
+
 // Inline **bold** is supported in paragraphs, points, callouts, takeaways and the conclusion.
 export interface Post {
   id: string
@@ -25,29 +27,33 @@ export interface Post {
   category: string
   /** Name from POST_ICONS in lib/blog/icons.ts */
   icon: string
-  /** ISO date, e.g. 2026-04-01 */
+  /** ISO date string, e.g. 2026-04-01 */
   date: string
-  /** Minutes; null uses the estimate calculated from the word count */
+  /** Reading time in minutes; null or 0 uses the estimate calculated from the word count */
   readTime: number | null
   cover: {
-    /** Uploaded (/api/blog/media/...) or external image; empty uses the generated cover */
+    /** Uploaded S3 URL or external image; empty uses generated cover art */
     image: string
-    /** Generated cover art — not editable in the form, kept for existing posts */
+    /** Generated cover art motif */
     motif: CoverMotif
-    /** Falls back to the category when empty */
+    /** Cover art label; falls back to category when empty */
     label: string
-    /** Hex colour for the generated cover art */
+    /** Hex color for generated cover art */
     accent: string
   }
+  cover_image_url?: string
   tags: string[]
   takeaways: string[]
   sections: PostSection[]
   /** Paragraphs separated by new lines */
   conclusion: string
+  status: PostStatus
+  published_at?: string
+  created_at?: string
   updatedAt: string
 }
 
-export type PostInput = Omit<Post, 'id' | 'updatedAt'>
+export type PostInput = Omit<Post, 'id' | 'updatedAt' | 'created_at'>
 
 export const DEFAULT_ACCENT = '#22d3ee'
 
@@ -69,7 +75,7 @@ export const CATEGORY_SUGGESTIONS = [
   'Data Governance',
   'Cloud & DevOps',
   'Tech Leadership',
-  'ERP Innovation',
+  'Infrastructure',
 ]
 
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024
@@ -80,3 +86,6 @@ export const UPLOAD_MIME_TYPES = [
   'image/gif',
   'image/avif',
 ]
+
+export const COVER_IMAGE_HOST = 'blogs-neo.s3.ap-south-1.amazonaws.com'
+

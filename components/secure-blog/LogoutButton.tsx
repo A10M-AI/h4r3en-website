@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { LogOut } from 'lucide-react'
-import { logout } from '@/app/secure-blog/actions'
+import { LoaderCircle, LogOut } from 'lucide-react'
+import { logoutAction } from '@/app/secure-blog/actions'
 import { secondaryButtonClass } from './styles'
 
 export default function LogoutButton() {
@@ -14,13 +14,18 @@ export default function LogoutButton() {
       disabled={pending}
       onClick={async () => {
         setPending(true)
-        await logout()
+        await logoutAction()
       }}
       aria-label="Sign out"
       className={secondaryButtonClass}
     >
-      <LogOut size={16} />
+      {pending ? (
+        <LoaderCircle size={16} className="animate-spin" />
+      ) : (
+        <LogOut size={16} />
+      )}
       <span className="hidden sm:inline">Sign out</span>
     </button>
   )
 }
+

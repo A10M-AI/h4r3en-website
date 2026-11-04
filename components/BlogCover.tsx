@@ -2,7 +2,6 @@ import Image from 'next/image'
 import { getPostIcon } from '@/lib/blog/icons'
 import type { CoverMotif, Post } from '@/lib/blog/types'
 
-// All motifs share a 400×225 (16:9) viewBox centred on (200, 112).
 function ring(count: number, rx: number, ry: number, offset = 0) {
   return Array.from({ length: count }, (_, i) => {
     const angle = (i / count) * Math.PI * 2 + offset
@@ -124,7 +123,6 @@ const motifs: Record<CoverMotif, React.ComponentType> = {
 interface BlogCoverProps {
   post: Pick<Post, 'title' | 'icon' | 'cover' | 'category'>
   sizes?: string
-  /** Include a rounded-* class; the cover has square corners by default. */
   className?: string
 }
 
@@ -135,26 +133,22 @@ export default function BlogCover({
 }: BlogCoverProps) {
   const { cover, title } = post
   const Icon = getPostIcon(post.icon)
-  const Art = motifs[cover.motif] ?? NetworkArt
-  const accent = cover.accent
+  const Art = motifs[cover?.motif || 'network'] ?? NetworkArt
+  const accent = cover?.accent || '#22d3ee'
+  const imageUrl = cover?.image
 
   return (
-    <div
-      className={`relative aspect-[16/9] overflow-hidden bg-slate-950 ${className}`}
-    >
-      {cover.image ? (
+    <div className={`relative aspect-[16/9] overflow-hidden bg-slate-950 ${className}`}>
+      {imageUrl ? (
         <Image
-          src={cover.image}
+          src={imageUrl}
           alt={title}
           fill
           sizes={sizes}
-          // External URLs are shown as-is; only uploads go through the optimiser.
-          unoptimized={cover.image.startsWith('https://')}
           className="object-cover transition-transform duration-500 group-hover:scale-105"
         />
       ) : (
         <div aria-hidden="true" className="absolute inset-0">
-          {/* Base */}
           <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950" />
           <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff08_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)] bg-[size:20px_20px]" />
           <div
@@ -162,7 +156,6 @@ export default function BlogCover({
             style={{ backgroundColor: accent }}
           />
 
-          {/* Motif */}
           <svg
             viewBox="0 0 400 225"
             preserveAspectRatio="xMidYMid slice"
@@ -175,23 +168,21 @@ export default function BlogCover({
             <Art />
           </svg>
 
-          {/* Centre icon */}
           <div className="absolute inset-0 flex items-center justify-center">
             <div
-              className="w-14 h-14 rounded-2xl bg-slate-950/80 border backdrop-blur-sm flex items-center justify-center"
+              className="w-14 h-14 rounded-2xl bg-slate-950/80 border backdrop-blur-sm flex items-center justify-center shadow-lg"
               style={{ borderColor: `${accent}66`, boxShadow: `0 10px 30px -6px ${accent}55` }}
             >
               <Icon size={24} style={{ color: accent }} />
             </div>
           </div>
 
-          {/* Label strip */}
           <div className="absolute bottom-0 inset-x-0 flex items-center justify-between px-4 py-2.5 bg-gradient-to-t from-slate-950/90 to-transparent">
             <span
               className="font-mono text-[10px] uppercase tracking-[0.2em]"
               style={{ color: `${accent}cc` }}
             >
-              {cover.label || post.category}
+              {cover?.label || post.category}
             </span>
             <span
               className="w-1.5 h-1.5 rounded-full animate-pulse"
@@ -203,3 +194,4 @@ export default function BlogCover({
     </div>
   )
 }
+
