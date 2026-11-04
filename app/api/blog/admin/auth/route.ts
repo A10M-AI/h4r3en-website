@@ -24,7 +24,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Password is required.' }, { status: 400 })
     }
 
-    const rateLimit = checkRateLimit()
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'default'
+
+    const rateLimit = checkRateLimit(ip)
     if (!rateLimit.allowed) {
       return NextResponse.json(
         {
@@ -36,11 +38,11 @@ export async function POST(request: Request) {
 
     const isValid = verifyPassword(password)
     if (!isValid) {
-      recordLoginFailure()
+      recordLoginFailure(ip)
       return NextResponse.json({ error: 'Invalid admin password.' }, { status: 401 })
     }
 
-    resetLoginAttempts()
+    resetLoginAttempts(ip)
     await createSession()
 
     return NextResponse.json({ success: true, message: 'Authenticated successfully.' })
@@ -54,4 +56,3 @@ export async function DELETE() {
   await destroySession()
   return NextResponse.json({ success: true, message: 'Logged out successfully.' })
 }
-

@@ -1,5 +1,6 @@
 'use server'
 
+import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import {
@@ -15,6 +16,19 @@ import { deletePost, isSlugTaken, savePost, type SaveResult } from '@/lib/blog/s
 import type { PostInput } from '@/lib/blog/types'
 import { validatePostInput } from '@/lib/blog/validate'
 
+async function getClientIdentifier(): Promise<string> {
+  try {
+    const headerList = await headers()
+    const forwarded = headerList.get('x-forwarded-for')
+    if (forwarded) {
+      return forwarded.split(',')[0].trim()
+    }
+    return headerList.get('x-real-ip') || 'default'
+  } catch {
+    return 'default'
+  }
+}
+
 export async function loginAction(
   prevState: { error?: string } | undefined,
   formData: FormData
@@ -25,8 +39,10 @@ export async function loginAction(
     return { error: 'Please enter the admin password.' }
   }
 
+  const clientId = await getClientIdentifier()
+
   // Check rate limiting
-  const rateLimit = checkRateLimit()
+  const rateLimit = checkRateLimit(clientId)
   if (!rateLimit.allowed) {
     return {
       error: `Too many failed login attempts. Please wait ${rateLimit.waitSeconds} seconds before trying again.`,
@@ -35,12 +51,12 @@ export async function loginAction(
 
   const isValid = verifyPassword(password)
   if (!isValid) {
-    recordLoginFailure()
+    recordLoginFailure(clientId)
     return { error: 'Invalid admin password. Access denied.' }
   }
 
   // Successful login
-  resetLoginAttempts()
+  resetLoginAttempts(clientId)
   await createSession()
   redirect('/secure-blog')
 }
@@ -113,4 +129,3 @@ export async function deletePostAction(
 
   return { ok: true }
 }
-
