@@ -1,18 +1,23 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  async redirects() {
-    return [
+  images: {
+    remotePatterns: [
       {
-        source: '/blog',
-        destination: '/coming-blog',
-        permanent: false,
+        protocol: 'https',
+        hostname: 'blogs-neo.s3.ap-south-1.amazonaws.com',
+        pathname: '/**',
       },
       {
-        source: '/blog/:path*',
-        destination: '/coming-blog',
-        permanent: false,
+        protocol: 'https',
+        hostname: 'blogs-neo.s3.amazonaws.com',
+        pathname: '/**',
       },
-    ]
+      {
+        protocol: 'https',
+        hostname: '**.amazonaws.com',
+        pathname: '/**',
+      },
+    ],
   },
 }
 
