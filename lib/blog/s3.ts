@@ -2,13 +2,13 @@ import crypto from 'node:crypto'
 import { MAX_UPLOAD_BYTES, UPLOAD_MIME_TYPES } from './types'
 
 function getS3Config() {
-  const accessKeyId = process.env.AWS_ACCESS_KEY_ID || process.env.ACCESS_KEY_ID
-  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY || process.env.SECRET_ACCESS_KEY
-  const region = process.env.AWS_REGION || process.env.REGION || 'ap-south-1'
-  const bucket = process.env.AWS_S3_BUCKET || process.env.BUCKET_NAME || 'blogs-neo'
+  const accessKeyId = process.env.ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID
+  const secretAccessKey = process.env.SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY
+  const region = process.env.REGION || process.env.AWS_REGION || 'ap-south-1'
+  const bucket = process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || process.env.BUCKET_NAME || 'blogs-neo'
 
   if (!accessKeyId || !secretAccessKey) {
-    throw new Error('AWS credentials are not configured in environment.')
+    throw new Error('S3 credentials (ACCESS_KEY_ID, SECRET_ACCESS_KEY) are not configured in environment.')
   }
 
   return { accessKeyId, secretAccessKey, region, bucket }

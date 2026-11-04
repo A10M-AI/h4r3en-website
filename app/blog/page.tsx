@@ -49,7 +49,7 @@ export default async function BlogPage() {
         <div className="absolute top-48 -left-24 w-72 h-72 bg-blue-600/10 dark:bg-blue-600/15 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute top-48 -right-24 w-72 h-72 bg-cyan-500/10 dark:bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <div className="relative px-4 sm:px-6 lg:px-8 text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 text-blue-700 dark:text-blue-400 text-sm font-semibold mb-8 shadow-sm">
             <Sparkles size={14} className="shrink-0 text-blue-600 dark:text-blue-400" />
             <span>AI Strategy &amp; Engineering Blueprint</span>
